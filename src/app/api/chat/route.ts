@@ -35,7 +35,7 @@ async function getAgent() {
 
   agent = createReactAgent({
     llm,
-    tools: toolkit.getTools(),
+    tools: toolkit.getTools() as any,
     messageModifier: `You are Hedera Spend Guardian, an AI agent with policy-enforced access to Hedera Testnet.
 You can check balances, transfer HBAR, and interact with HCS topics.
 Every transaction you propose must go through policy checks.
