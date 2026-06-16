@@ -5,6 +5,7 @@ import { policyEngine } from "@/lib/policy-engine";
 import { HederaLangchainToolkit } from "@hashgraph/hedera-agent-kit-langchain";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { HumanMessage } from "@langchain/core/messages";
 
 let agent: any = null;
 let toolkit: HederaLangchainToolkit | null = null;
