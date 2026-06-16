@@ -1,65 +1,123 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [message, setMessage] = useState("");
+  const [response, setResponse] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const send = async () => {
+    if (!message.trim()) return;
+    setLoading(true);
+    setResponse(null);
+
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    const data = await res.json();
+    setResponse(data);
+    setLoading(false);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="min-h-screen bg-gray-950 text-white p-8">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold mb-2">🛡️ Hedera Spend Guardian</h1>
+        <p className="text-gray-400 mb-8">
+          Policy-enforced AI agent — 3 custom policies guard every transaction
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Chat Panel */}
+          <div className="lg:col-span-2 bg-gray-900 rounded-xl p-6 border border-gray-800">
+            <h2 className="text-xl font-semibold mb-4">💬 Agent Chat</h2>
+            <div className="mb-4">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type your request... e.g. 'Find latest Hedera news'"
+                className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 min-h-[100px]"
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              />
+            </div>
+            <button
+              onClick={send}
+              disabled={loading}
+              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-6 py-2 rounded-lg font-medium transition"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              {loading ? "Sending..." : "Send"}
+            </button>
+
+            {response && (
+              <div className={`mt-6 p-4 rounded-lg ${response.blocked ? "bg-red-900/50 border border-red-700" : "bg-green-900/30 border border-green-700"}`}>
+                <div className="font-medium mb-2">{response.blocked ? "❌ Blocked" : "✅ Allowed"}</div>
+                <p className="text-sm text-gray-300">{response.message}</p>
+                {response.reasons && (
+                  <ul className="mt-2 text-sm text-red-400">
+                    {response.reasons.map((r: string, i: number) => (
+                      <li key={i}>• {r}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Policy Dashboard */}
+          <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
+            <h2 className="text-xl font-semibold mb-4">📊 Policy Status</h2>
+            {response?.status ? (
+              <div className="space-y-4 text-sm">
+                <div>
+                  <div className="text-gray-400 mb-1">SpendLimitPolicy</div>
+                  <div className="text-purple-400">
+                    Daily: {response.status.spendLimit.spentToday} / {response.status.spendLimit.dailyLimit} HBAR
+                  </div>
+                  <div className="text-purple-400">
+                    Per-tx max: {response.status.spendLimit.perTxLimit} HBAR
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400 mb-1">ServiceAllowPolicy</div>
+                  <div className="text-green-400">
+                    {(response.status.serviceAllow.allowedServices || []).join(", ")}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400 mb-1">TimeWindowPolicy</div>
+                  <div className="text-blue-400">
+                    {response.status.timeWindow.startHour}:00–{response.status.timeWindow.endHour}:00 UTC
+                  </div>
+                </div>
+                {response.topicId && (
+                  <div>
+                    <div className="text-gray-400 mb-1">📜 HCS Audit</div>
+                    <div className="text-yellow-400 text-xs font-mono">{response.topicId}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-gray-500 text-sm">
+                Send a message to see policy status...
+              </div>
+            )}
+
+            {response?.policyResults && (
+              <div className="mt-6 space-y-2">
+                {response.policyResults.map((p: any, i: number) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs ${p.allowed ? "text-green-400" : "text-red-400"}`}>
+                    <span>{p.allowed ? "✓" : "✗"}</span>
+                    <span>{p.policy}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
