@@ -3,9 +3,8 @@ import { getHederaClient } from "@/lib/hedera-client";
 import { createAuditTopic, logAuditEvent } from "@/lib/hcs-audit";
 import { policyEngine } from "@/lib/policy-engine";
 import { HederaLangchainToolkit } from "@hashgraph/hedera-agent-kit-langchain";
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatDeepSeek } from "@langchain/deepseek";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { HumanMessage } from "@langchain/core/messages";
 
 let agent: any = null;
 let toolkit: HederaLangchainToolkit | null = null;
@@ -29,8 +28,8 @@ async function getAgent() {
     },
   });
 
-  const llm = new ChatOpenAI({
-    modelName: "gpt-4o-mini",
+  const llm = new ChatDeepSeek({
+    model: "deepseek-chat",
     temperature: 0,
   });
 
