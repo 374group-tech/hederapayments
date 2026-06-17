@@ -3,7 +3,7 @@ import { getHederaClient } from "@/lib/hedera-client";
 import { createAuditTopic, logAuditEvent } from "@/lib/hcs-audit";
 import { policyEngine } from "@/lib/policy-engine";
 import { HederaLangchainToolkit } from "@hashgraph/hedera-agent-kit-langchain";
-import { ChatDeepSeek } from "@langchain/deepseek";
+import { ChatOpenAI } from "@langchain/openai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { wrapFinancialTools } from "@/lib/wrapped-tools";
 import { HumanMessage } from "@langchain/core/messages";
@@ -30,9 +30,13 @@ async function getAgent() {
     },
   });
 
-  const llm = new ChatDeepSeek({
-    model: "deepseek-chat",
+  const llm = new ChatOpenAI({
+    model: "deepseek-ai/DeepSeek-V4-Pro",
     temperature: 0,
+    configuration: {
+      baseURL: "https://api.pioneer.ai/v1",
+      apiKey: process.env.DEEPSEEK_API_KEY,
+    },
   });
 
   const rawTools = toolkit.getTools() as any;
