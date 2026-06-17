@@ -5,6 +5,7 @@ import { policyEngine } from "@/lib/policy-engine";
 import { HederaLangchainToolkit } from "@hashgraph/hedera-agent-kit-langchain";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { wrapFinancialTools } from "@/lib/wrapped-tools";
 import { HumanMessage } from "@langchain/core/messages";
 
 let agent: any = null;
@@ -34,9 +35,12 @@ async function getAgent() {
     temperature: 0,
   });
 
+  const rawTools = toolkit.getTools() as any;
+  const guardedTools = wrapFinancialTools(rawTools);
+
   agent = createReactAgent({
     llm,
-    tools: toolkit.getTools() as any,
+    tools: guardedTools,
     messageModifier: `You are Hedera Spend Guardian, an AI agent with policy-enforced access to Hedera Testnet.
 You can check balances, transfer HBAR, and interact with HCS topics.
 Every transaction you propose must go through policy checks.
