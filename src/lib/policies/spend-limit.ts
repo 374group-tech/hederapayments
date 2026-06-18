@@ -3,8 +3,8 @@ import type { PolicyResult, PolicyContext } from "./types";
 
 export class SpendLimitPolicy {
   readonly name = "SpendLimitPolicy";
-  private dailyLimit: number;
-  private perTxLimit: number;
+  readonly dailyLimit: number;
+  readonly perTxLimit: number;
 
   constructor(dailyLimit?: number, perTxLimit?: number) {
     this.dailyLimit = dailyLimit ?? env.DAILY_SPEND_LIMIT_HBAR;

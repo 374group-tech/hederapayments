@@ -37,7 +37,7 @@ async function getAgent() {
     temperature: 0,
     configuration: {
       baseURL: "https://api.pioneer.ai/v1",
-      apiKey: process.env.DEEPSEEK_API_KEY,
+      apiKey: env.DEEPSEEK_API_KEY,
     },
   });
 
@@ -145,7 +145,8 @@ export async function POST(req: NextRequest) {
 
     // ── Run agent OR use direct response ──
     let agentResponse = "";
-    if (!directResponse || isBlocked) {
+    // Skip agent when blocked by policy — no point calling LLM
+    if (!directResponse) {
       const result = await ag.invoke({
         messages: [new HumanMessage(message)],
       });

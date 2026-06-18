@@ -43,16 +43,16 @@ export class PolicyEngine {
   getStatus() {
     return {
       spendLimit: {
-        dailyLimit: (this.spendLimit as any).dailyLimit,
-        perTxLimit: (this.spendLimit as any).perTxLimit,
+        dailyLimit: this.spendLimit.dailyLimit,
+        perTxLimit: this.spendLimit.perTxLimit,
         spentToday: this.dailyTotal,
       },
       serviceAllow: {
-        allowedServices: Array.from((this.serviceAllow as any).allowedServices),
+        allowedServices: Array.from(this.serviceAllow.allowedServices),
       },
       timeWindow: {
-        startHour: (this.timeWindow as any).startHour,
-        endHour: (this.timeWindow as any).endHour,
+        startHour: this.timeWindow.startHour,
+        endHour: this.timeWindow.endHour,
       },
     };
   }

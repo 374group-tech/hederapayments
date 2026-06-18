@@ -2,7 +2,7 @@ import type { PolicyResult, PolicyContext } from "./types";
 
 export class ServiceAllowPolicy {
   readonly name = "ServiceAllowPolicy";
-  private allowedServices: Set<string>;
+  readonly allowedServices: Set<string>;
 
   constructor(allowedList?: string[]) {
     if (allowedList && allowedList.length > 0) {

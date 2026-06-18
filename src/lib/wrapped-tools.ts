@@ -51,7 +51,6 @@ export function createGuardedTool(
           serviceName: "hedera",
           recipientId:
             (parsed.recipientId as string) ??
-            (parsed.recipientId as string) ??
             undefined,
         });
 

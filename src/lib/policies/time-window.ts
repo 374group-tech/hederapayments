@@ -2,8 +2,8 @@ import type { PolicyResult, PolicyContext } from "./types";
 
 export class TimeWindowPolicy {
   readonly name = "TimeWindowPolicy";
-  private startHour: number;
-  private endHour: number;
+  readonly startHour: number;
+  readonly endHour: number;
 
   constructor(startHour?: number, endHour?: number) {
     this.startHour = startHour ?? Number(process.env.BUSINESS_START_HOUR || 9);
