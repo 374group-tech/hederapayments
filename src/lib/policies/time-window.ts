@@ -12,6 +12,11 @@ export class TimeWindowPolicy {
 
   evaluate(ctx: PolicyContext): PolicyResult {
     const currentHour = ctx.hour;
+    // Only enforce time window for actual transactions (not queries like balance checks)
+    if (ctx.currentTxHbar === 0) {
+      return { allowed: true, policy: this.name };
+    }
+
     if (currentHour < this.startHour || currentHour >= this.endHour) {
       return {
         allowed: false,
