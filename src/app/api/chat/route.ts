@@ -91,25 +91,61 @@ export async function POST(req: NextRequest) {
     const ag = await getAgent();
     const topicId = await createAuditTopic().catch(() => "pending");
 
-    // ── Balance query interceptor (DeepSeek tool calling fallback) ──
-    const balanceMatch = message.match(/\b(balance|how much hbar|check hbar)\b/i);
-    let balanceResponse: string | null = null;
-    if (balanceMatch) {
-      try {
-        const hc = getHederaClient();
-        const operatorId = process.env.HEDERA_OPERATOR_ID!;
-        const balance = await new AccountBalanceQuery()
-          .setAccountId(operatorId)
-          .execute(hc);
-        balanceResponse = `💰 **Balance:** ${balance.hbars.toTinybars().divide(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
-      } catch {
-        balanceResponse = null;
+    // ── Parse user intent FIRST (used by all interceptors) ──
+    const transferMatch = message.match(/transfer\s+(\d+(?:\.\d+)?)\s*hbar/i);
+    const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
+    const toolName = amountHbar > 0 ? "transfer_hbar" : "chat";
+
+    let directResponse: string | null = null;
+    let isBlocked = false;
+    let reasons: string[] = [];
+
+    // ── Interceptor 1: Transfer → policy check BEFORE agent (no raw XML) ──
+    if (amountHbar > 0) {
+      const xferResults = policyEngine.evaluate({
+        toolName: "transfer_hbar",
+        serviceName: "hedera",
+        amountHbar,
+      });
+      const blockers = xferResults.filter((r: any) => !r.allowed);
+      if (blockers.length > 0) {
+        reasons = blockers.map((r: any) => r.reason);
+        directResponse = `❌ BLOCKED by policies:\n• ${reasons.join('\n• ')}`;
+        isBlocked = true;
       }
     }
 
-    // Run agent for reasoning (non-query tasks)
-    let agentResponse = "No response from agent.";
-    if (!balanceResponse) {
+    // ── Interceptor 2: Balance query (DeepSeek tool calling fallback) ──
+    if (!directResponse && /\b(balance|how much hbar|check hbar)\b/i.test(message)) {
+      try {
+        const hc = getHederaClient();
+        const operatorId = process.env.HEDERA_OPERATOR_ID!;
+        const bal = await new AccountBalanceQuery()
+          .setAccountId(operatorId)
+          .execute(hc);
+        directResponse = `💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
+      } catch {
+        directResponse = null;
+      }
+    }
+
+    // ── Interceptor 3: Account info query ──
+    if (!directResponse && /\b(account info|account details|who am i)\b/i.test(message)) {
+      try {
+        const hc = getHederaClient();
+        const operatorId = process.env.HEDERA_OPERATOR_ID!;
+        const bal = await new AccountBalanceQuery()
+          .setAccountId(operatorId)
+          .execute(hc);
+        directResponse = `🏦 **Account:** ${operatorId}\n💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR\n🌐 **Network:** Hedera Testnet\n🛡️ **Guard:** 3 HAK v4 policies active`;
+      } catch {
+        directResponse = null;
+      }
+    }
+
+    // ── Run agent OR use direct response ──
+    let agentResponse = "";
+    if (!directResponse || isBlocked) {
       const result = await ag.invoke({
         messages: [new HumanMessage(message)],
       });
@@ -117,16 +153,14 @@ export async function POST(req: NextRequest) {
       agentResponse = lastMessage?.content || "No response from agent.";
     }
 
-    const finalResponse = balanceResponse || agentResponse;
+    const finalResponse = directResponse || agentResponse;
 
-    // Detect if agent was blocked by pre-execution policy gate
-    const agentBlocked = /BLOCKED|🚫/.test(finalResponse);
+    // Detect blocked from wrapped tool output
+    if (/BLOCKED|🚫/i.test(finalResponse)) {
+      isBlocked = true;
+    }
 
-    // Parse user intent to reflect real policy evaluation in UI
-    const transferMatch = message.match(/transfer\s+(\d+(?:\.\d+)?)\s*hbar/i);
-    const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
-    const toolName = amountHbar > 0 ? "transfer_hbar" : "chat";
-
+    // Policy results for UI panel
     const policyResults = policyEngine.evaluate({
       toolName,
       serviceName: amountHbar > 0 ? "hedera" : "openai",
@@ -134,11 +168,8 @@ export async function POST(req: NextRequest) {
     });
 
     const blockedPolicies = policyResults.filter((r: any) => !r.allowed);
-    const isBlocked = agentBlocked || blockedPolicies.length > 0;
-
-    const reasons = blockedPolicies.map((r: any) => r.reason);
-    if (agentBlocked && reasons.length === 0) {
-      reasons.push(finalResponse.slice(0, 200));
+    if (isBlocked && reasons.length === 0) {
+      reasons = blockedPolicies.map((r: any) => r.reason);
     }
 
     // Log audit event
