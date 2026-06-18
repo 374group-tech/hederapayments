@@ -17,7 +17,7 @@ Hedera Spend Guardian is an autonomous AI agent that leverages the **Hedera Agen
 
 ```
 User Message → /api/chat
-  → Policy Engine (3 Custom Policies)
+  → Policy Engine (3 v1.0 + 2 v2.0 Custom Policies)
     ├─ SpendLimitPolicy    → Daily HBAR cap + per-transaction limit
     ├─ ServiceAllowPolicy  → Whitelist external APIs (Tavily, OpenAI, Hedera)
     └─ TimeWindowPolicy    → Business hours only (9:00–18:00 UTC)
@@ -34,11 +34,20 @@ User Message → /api/chat
 
 ### Policies Implemented
 
+**v1.0 (active in policy engine)**
+
 | Policy | Type | Enforcement |
 |--------|------|-------------|
 | **SpendLimitPolicy** | Financial safety | Caps daily spend (default: 5 HBAR) + per-tx limit (default: 2 HBAR) |
 | **ServiceAllowPolicy** | Off-chain guard | Whitelists which external services the agent can call |
 | **TimeWindowPolicy** | Temporal guard | Restricts transactions to business hours (9:00–18:00 UTC) |
+
+**v2.0 (HAK AbstractPolicy — plug into pipeline via `.use()`)**
+
+| Policy | Type | Enforcement |
+|--------|------|-------------|
+| **MaxSpendPolicy** | USD-based budgeting | Global + per-project daily USD caps with HBAR→USD conversion |
+| **AllowlistPolicy** | Counterparty guard | Blocks transfers to unauthorized accounts + unapproved API providers |
 
 All policies are **composable** — they run in sequence, and the first block wins. Policies are evaluated via `policyEngine.evaluate()` before any agent action.
 
@@ -171,13 +180,21 @@ hederapayments/
 │   └── lib/
 │       ├── config.ts               # Zod env validation
 │       ├── hedera-client.ts        # Client.forTestnet() with ED25519
-│       ├── hcs-audit.ts            # HCS topic + message submission
-│       ├── policy-engine.ts        # Orchestrates all 3 policies
+│       ├── hcs-audit.ts            # HCS topic + message submission (legacy)
+│       ├── constants.ts            # Operator ID export
+│       ├── wrapped-tools.ts        # Pre-execution policy gate (wrap HAK tools)
+│       ├── policy-engine.ts        # Orchestrates all policies
+│       ├── hooks/
+│       │   ├── index.ts            # Hook exports
+│       │   ├── AlertHook.ts        # Telegram alerts on blocks/high-value tx
+│       │   └── AuditLogHook.ts     # HCS immutable audit trail (v2.0)
 │       └── policies/
 │           ├── types.ts            # PolicyResult + PolicyContext
-│           ├── spend-limit.ts      # SpendLimitPolicy
-│           ├── service-allow.ts    # ServiceAllowPolicy
-│           └── time-window.ts      # TimeWindowPolicy
+│           ├── spend-limit.ts      # SpendLimitPolicy (v1.0)
+│           ├── service-allow.ts    # ServiceAllowPolicy (v1.0)
+│           ├── time-window.ts      # TimeWindowPolicy (v1.0)
+│           ├── max-spend.ts        # MaxSpendPolicy (v2.0 — USD-based)
+│           └── allowlist.ts        # AllowlistPolicy (v2.0 — counterparty)
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
@@ -212,10 +229,10 @@ hederapayments/
 |------|--------|----------------|
 | 1 | Open [hederapayments.vercel.app](https://hederapayments.vercel.app) | Dark-themed chat panel + policy sidebar loads |
 | 2 | Type "Check my balance" and press Send | Agent responds via DeepSeek + HAK tools |
-| 3 | Observe Policy Status sidebar | All 3 policies show live configuration |
-| 4 | Check response JSON in DevTools → Network → /api/chat | `policyResults` array shows 3 evaluations |
+| 3 | Observe Policy Status sidebar | All 5 policies show live configuration |
+| 4 | Check response JSON in DevTools → Network → /api/chat | `policyResults` array shows policy evaluations |
 | 5 | Note `topicId` in response | HCS audit trail topic created on-chain |
-| 6 | Verify source: `src/lib/policies/` | 3 custom policy classes, composable in `policy-engine.ts` |
+| 6 | Verify source: `src/lib/policies/` | 5 custom policy classes, composable in `policy-engine.ts` |
 
 ---
 
@@ -225,7 +242,7 @@ hederapayments/
 |-------------|--------|----------|
 | Public GitHub repo | ✅ | [github.com/374group-tech/hederapayments](https://github.com/374group-tech/hederapayments) |
 | Uses Hedera Agent Kit | ✅ | HAK v4 + LangChain toolkit, 6 tools exposed |
-| 3 custom policies (hooks) | ✅ | SpendLimitPolicy, ServiceAllowPolicy, TimeWindowPolicy ([source](https://github.com/374group-tech/hederapayments/tree/main/src/lib/policies)) |
+| 3+2 custom policies (v1.0 + v2.0) | ✅ | 3 composable (SpendLimit, ServiceAllow, TimeWindow) + 2 HAK AbstractPolicy (MaxSpend, Allowlist) ([source](https://github.com/374group-tech/hederapayments/tree/main/src/lib/policies)) |
 | Composable policy engine | ✅ | PolicyEngine evaluates all policies in sequence ([source](https://github.com/374group-tech/hederapayments/blob/main/src/lib/policy-engine.ts)) |
 | HCS Audit Trail | ✅ | Immutable on-chain log via `TopicMessageSubmitTransaction` ([source](https://github.com/374group-tech/hederapayments/blob/main/src/lib/hcs-audit.ts)) |
 | Live demo (public URL) | ✅ | [hederapayments.vercel.app](https://hederapayments.vercel.app) |
