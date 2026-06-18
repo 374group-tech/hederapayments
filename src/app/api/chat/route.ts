@@ -7,6 +7,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { wrapFinancialTools } from "@/lib/wrapped-tools";
 import { HumanMessage } from "@langchain/core/messages";
+import { AccountBalanceQuery } from "@hiero-ledger/sdk";
+import { env } from "@/lib/config";
 
 let agent: any = null;
 let toolkit: HederaLangchainToolkit | null = null;
@@ -89,16 +91,36 @@ export async function POST(req: NextRequest) {
     const ag = await getAgent();
     const topicId = await createAuditTopic().catch(() => "pending");
 
-    // Run agent
-    const result = await ag.invoke({
-      messages: [new HumanMessage(message)],
-    });
+    // ── Balance query interceptor (DeepSeek tool calling fallback) ──
+    const balanceMatch = message.match(/\b(balance|how much hbar|check hbar)\b/i);
+    let balanceResponse: string | null = null;
+    if (balanceMatch) {
+      try {
+        const hc = getHederaClient();
+        const operatorId = process.env.HEDERA_OPERATOR_ID!;
+        const balance = await new AccountBalanceQuery()
+          .setAccountId(operatorId)
+          .execute(hc);
+        balanceResponse = `💰 **Balance:** ${balance.hbars.toTinybars().dividedBy(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
+      } catch {
+        balanceResponse = null;
+      }
+    }
 
-    const lastMessage = result.messages?.[result.messages.length - 1];
-    const agentResponse = lastMessage?.content || "No response from agent.";
+    // Run agent for reasoning (non-query tasks)
+    let agentResponse = "No response from agent.";
+    if (!balanceResponse) {
+      const result = await ag.invoke({
+        messages: [new HumanMessage(message)],
+      });
+      const lastMessage = result.messages?.[result.messages.length - 1];
+      agentResponse = lastMessage?.content || "No response from agent.";
+    }
+
+    const finalResponse = balanceResponse || agentResponse;
 
     // Detect if agent was blocked by pre-execution policy gate
-    const agentBlocked = /BLOCKED|🚫/.test(agentResponse);
+    const agentBlocked = /BLOCKED|🚫/.test(finalResponse);
 
     // Parse user intent to reflect real policy evaluation in UI
     const transferMatch = message.match(/transfer\s+(\d+(?:\.\d+)?)\s*hbar/i);
@@ -116,7 +138,7 @@ export async function POST(req: NextRequest) {
 
     const reasons = blockedPolicies.map((r: any) => r.reason);
     if (agentBlocked && reasons.length === 0) {
-      reasons.push(agentResponse.slice(0, 200));
+      reasons.push(finalResponse.slice(0, 200));
     }
 
     // Log audit event
@@ -126,12 +148,12 @@ export async function POST(req: NextRequest) {
       result: isBlocked ? "blocked" : "allowed",
       details: JSON.stringify({
         userMessage: message.slice(0, 200),
-        agentResponse: agentResponse.slice(0, 200),
+        agentResponse: finalResponse.slice(0, 200),
       }),
     }).catch(() => {});
 
     return NextResponse.json({
-      message: agentResponse,
+      message: finalResponse,
       blocked: isBlocked,
       reasons,
       policyResults,
