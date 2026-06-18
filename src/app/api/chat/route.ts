@@ -85,20 +85,33 @@ export async function POST(req: NextRequest) {
     const lastMessage = result.messages?.[result.messages.length - 1];
     const agentResponse = lastMessage?.content || "No response from agent.";
 
-    // Evaluate policies
+    // Detect if agent was blocked by pre-execution policy gate
+    const agentBlocked = /BLOCKED|🚫/.test(agentResponse);
+
+    // Parse user intent to reflect real policy evaluation in UI
+    const transferMatch = message.match(/transfer\s+(\d+(?:\.\d+)?)\s*hbar/i);
+    const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
+    const toolName = amountHbar > 0 ? "transfer_hbar" : "chat";
+
     const policyResults = policyEngine.evaluate({
-      toolName: "chat",
-      serviceName: "openai",
-      amountHbar: 0,
+      toolName,
+      serviceName: amountHbar > 0 ? "hedera" : "openai",
+      amountHbar,
     });
 
-    const blocked = policyResults.filter((r) => !r.allowed);
+    const blockedPolicies = policyResults.filter((r: any) => !r.allowed);
+    const isBlocked = agentBlocked || blockedPolicies.length > 0;
+
+    const reasons = blockedPolicies.map((r: any) => r.reason);
+    if (agentBlocked && reasons.length === 0) {
+      reasons.push(agentResponse.slice(0, 200));
+    }
 
     // Log audit event
     await logAuditEvent({
       tool: "chat",
       action: "conversation_turn",
-      result: blocked.length > 0 ? "blocked" : "allowed",
+      result: isBlocked ? "blocked" : "allowed",
       details: JSON.stringify({
         userMessage: message.slice(0, 200),
         agentResponse: agentResponse.slice(0, 200),
@@ -107,8 +120,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       message: agentResponse,
-      blocked: blocked.length > 0,
-      reasons: blocked.map((r) => r.reason),
+      blocked: isBlocked,
+      reasons,
       policyResults,
       topicId,
       status: policyEngine.getStatus(),
