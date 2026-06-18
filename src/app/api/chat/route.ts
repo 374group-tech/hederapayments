@@ -42,8 +42,20 @@ async function getAgent() {
   const rawTools = toolkit.getTools() as any;
   const guardedTools = wrapFinancialTools(rawTools);
 
+  // Bind tools properly so DeepSeek uses native function calling, not text output
+  const llmWithTools = llm.bindTools(
+    guardedTools.map((t: any) => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.schema ?? { type: "object", properties: {} },
+      },
+    })),
+  ) as any;
+
   agent = createReactAgent({
-    llm,
+    llm: llmWithTools,
     tools: guardedTools,
     messageModifier: `You are Hedera Spend Guardian — an AI agent on Hedera Testnet guarded by HAK v4 policies.
 
