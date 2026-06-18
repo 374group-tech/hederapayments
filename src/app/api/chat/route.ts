@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         const balance = await new AccountBalanceQuery()
           .setAccountId(operatorId)
           .execute(hc);
-        balanceResponse = `💰 **Balance:** ${balance.hbars.toTinybars().dividedBy(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
+        balanceResponse = `💰 **Balance:** ${balance.hbars.toTinybars().divide(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
       } catch {
         balanceResponse = null;
       }
