@@ -27,7 +27,7 @@ export default function Home() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold mb-2">🛡️ Hedera Spend Guardian</h1>
         <p className="text-gray-400 mb-8">
-          Policy-enforced AI agent — 3 custom policies guard every transaction
+          Policy-enforced AI agent — 5 custom policies guard every transaction
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -92,6 +92,28 @@ export default function Home() {
                     {response.status.timeWindow.startHour}:00–{response.status.timeWindow.endHour}:00 UTC
                   </div>
                 </div>
+                {response.status.maxSpend && (
+                  <div>
+                    <div className="text-gray-400 mb-1">MaxSpendPolicy</div>
+                    <div className="text-orange-400">
+                      Daily: ${response.status.maxSpend.spentTodayUsd.toFixed(2)} / ${response.status.maxSpend.dailyLimitUsd.toFixed(2)} USD
+                    </div>
+                    <div className="text-orange-400">
+                      Remaining: ${response.status.maxSpend.remainingUsd.toFixed(2)}
+                    </div>
+                  </div>
+                )}
+                {response.status.allowlist && (
+                  <div>
+                    <div className="text-gray-400 mb-1">AllowlistPolicy</div>
+                    <div className="text-yellow-400">
+                      Providers: {(response.status.allowlist.apiProviders || []).join(", ")}
+                    </div>
+                    <div className="text-yellow-400 text-xs">
+                      Accounts: {(response.status.allowlist.accountIds || ["none"]).join(", ")}
+                    </div>
+                  </div>
+                )}
                 {response.topicId && (
                   <div>
                     <div className="text-gray-400 mb-1">📜 HCS Audit</div>

@@ -152,16 +152,18 @@ describe("PolicyEngine", () => {
     engine = new PolicyEngine();
   });
 
-  it("returns 3 policy results for a transaction", () => {
+  it("returns 5 policy results for a transaction", () => {
     const results = engine.evaluate({
       toolName: "transfer_hbar",
       amountHbar: 1,
       serviceName: "hedera",
     });
-    expect(results).toHaveLength(3);
+    expect(results).toHaveLength(5);
     expect(results[0].policy).toBe("SpendLimitPolicy");
     expect(results[1].policy).toBe("ServiceAllowPolicy");
     expect(results[2].policy).toBe("TimeWindowPolicy");
+    expect(results[3].policy).toBe("MaxSpendPolicy");
+    expect(results[4].policy).toBe("AllowlistPolicy");
   });
 
   it("blocks over-limit transfer (SpendLimitPolicy fails first)", () => {
