@@ -56,26 +56,30 @@ async function getAgent() {
     })),
   ) as any;
 
+  const SYSTEM_PROMPT = [
+    "You are Hedera Spend Guardian - an AI agent on Hedera Testnet guarded by HAK v4 policies.",
+    "",
+    "AVAILABLE TOOLS (ALL policy-gated):",
+    "- get_hbar_balance - check balances",
+    "- transfer_hbar - send HBAR (BLOCKED if policies fail)",
+    "- get_account_info - query accounts",
+    "- submit_topic_message - HCS audit logging",
+    "",
+    "CRITICAL RULES (violate = DISQUALIFICATION):",
+    "1. If a wrapped tool returns BLOCKED, copy the EXACT block reason from the tool output word-for-word. NEVER rewrite, paraphrase, or invent a reason.",
+    "2. NEVER say I will process/attempt/check before a transfer - always execute first, then report result.",
+    "3. NEVER output XML or JSON function calls as text - execute the tool directly via function calling.",
+    "4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs.",
+    "5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/TXID",
+    "6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.",
+    "7. Keep responses short - the user is on mobile.",
+    "8. Report policy blocks in plain text, copying the exact BLOCKED message from the tool.",
+  ].join("\n");
+
   agent = createReactAgent({
     llm: llmWithTools,
     tools: guardedTools,
-    messageModifier: `You are Hedera Spend Guardian — an AI agent on Hedera Testnet guarded by HAK v4 policies.
-
-AVAILABLE TOOLS (ALL policy-gated):
-- get_hbar_balance — check balances
-- transfer_hbar — send HBAR (BLOCKED if policies fail)
-- get_account_info — query accounts
-- submit_topic_message — HCS audit logging
-
-CRITICAL RULES (violate = DISQUALIFICATION):
-1. If a wrapped tool returns BLOCKED, copy the EXACT block reason from the tool output word-for-word. NEVER rewrite, paraphrase, or invent a reason.
-2. NEVER say "I'll process/attempt/check" before a transfer — always execute first, then report result.
-3. NEVER output XML (<function_calls>, <invoke>) or JSON — execute the tool directly via function calling.
-4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs.
-5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/<txId>
-6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.
-7. Keep responses short — the user is on mobile.
-8. Report policy blocks in plain text: "BLOCKED by SpendLimitPolicy: 0.35 HBAR exceeds daily limit of 5 HBAR (5 already spent)."
+    messageModifier: SYSTEM_PROMPT,
   });
 
   return agent;
@@ -93,8 +97,7 @@ export async function POST(req: NextRequest) {
     const ag = await getAgent();
     const topicId = await createAuditTopic().catch(() => "pending");
 
-    // ── Parse user intent FIRST (used by all interceptors) ──
-    // Match: transfer, send, pay, move — with optional "to"
+    // Parse user intent FIRST (used by all interceptors)
     const transferMatch = message.match(/(?:transfer|send|pay|move)\s+(\d+(?:\.\d+)?)\s*hbar/i);
     const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
     const toolName = amountHbar > 0 ? "transfer_hbar" : "chat";
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest) {
     let isBlocked = false;
     let reasons: string[] = [];
 
-    // ── Interceptor 1: Transfer → policy check BEFORE agent (no raw XML) ──
+    // Interceptor 1: Transfer policy check BEFORE agent
     if (amountHbar > 0) {
       const xferResults = policyEngine.evaluate({
         toolName: "transfer_hbar",
@@ -113,12 +116,12 @@ export async function POST(req: NextRequest) {
       const blockers = xferResults.filter((r: any) => !r.allowed);
       if (blockers.length > 0) {
         reasons = blockers.map((r: any) => r.reason);
-        directResponse = "BLOCKED by policies:\n• " + reasons.join("\n• ");
+        directResponse = "BLOCKED by policies:\n- " + reasons.join("\n- ");
         isBlocked = true;
       }
     }
 
-    // ── Interceptor 2: Balance query (DeepSeek tool calling fallback) ──
+    // Interceptor 2: Balance query
     if (!directResponse && /\b(balance|how much hbar|check hbar)\b/i.test(message)) {
       try {
         const hc = getHederaClient();
@@ -132,7 +135,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Interceptor 3: Account info query ──
+    // Interceptor 3: Account info query
     if (!directResponse && /\b(account info|account details|who am i)\b/i.test(message)) {
       try {
         const hc = getHederaClient();
@@ -146,10 +149,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // - Run agent OR use direct response -
+    // Run agent OR use direct response
     let agentResponse = "";
     let txId: string | null = null;
-    // Skip agent when blocked by policy - no point calling LLM
+
     if (!directResponse) {
       const result = await ag.invoke({
         messages: [new HumanMessage(message)],
@@ -158,23 +161,26 @@ export async function POST(req: NextRequest) {
       agentResponse = lastMessage?.content || "No response from agent.";
 
       // DeepSeek fallback: parse tool call from JSON/XML text output
-      // JSON format: ```json { "tool": "transfer_hbar", "parameters": {...} }
-      // XML format:  <function_calls><invoke name="transfer_hbar"><parameter name="amount">0.35</parameter>...
-      let parsedAmount = null as number | null;
-      let parsedRecipient = null as string | null;
+      let parsedAmount: number | null = null;
+      let parsedRecipient: string | null = null;
 
-      const jsonMatch = agentResponse.match(/```json\s*\n?([\s\S]*?)\n?```/);
-      if (jsonMatch) {
-        try {
-          const p = JSON.parse(jsonMatch[1]);
-          if (p?.tool === "transfer_hbar" || p?.name === "transfer_hbar") {
-            parsedAmount = Number(p?.parameters?.amount);
-            parsedRecipient = String(p?.parameters?.recipient || "");
-          }
-        } catch { /* not valid JSON */ }
+      // Try JSON fenced block
+      const jsonStart = agentResponse.indexOf("```json");
+      if (jsonStart !== -1) {
+        const jsonEnd = agentResponse.indexOf("```", jsonStart + 7);
+        if (jsonEnd !== -1) {
+          try {
+            const jsonStr = agentResponse.substring(jsonStart + 7, jsonEnd).trim();
+            const p = JSON.parse(jsonStr);
+            if (p?.tool === "transfer_hbar" || p?.name === "transfer_hbar") {
+              parsedAmount = Number(p?.parameters?.amount);
+              parsedRecipient = String(p?.parameters?.recipient || "");
+            }
+          } catch { /* not valid JSON */ }
+        }
       }
 
-      // XML fallback — DeepSeek sometimes outputs <function_calls> instead of JSON
+      // Try XML invoke
       if (!parsedAmount) {
         const xmlMatch = agentResponse.match(/<invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/invoke>/);
         if (xmlMatch && xmlMatch[1] === "transfer_hbar") {
@@ -186,7 +192,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Also try bare XML inline: <transfer_hbar amount="0.35" recipient="0.0.54321" />
+      // Try bare XML
       if (!parsedAmount) {
         const bareMatch = agentResponse.match(/<transfer_hbar\s+amount="([^"]+)"\s+recipient="([^"]+)"\s*\/?>/);
         if (bareMatch) {
@@ -219,7 +225,6 @@ export async function POST(req: NextRequest) {
 
     const finalResponse = directResponse || agentResponse;
 
-    // Detect blocked from wrapped tool output
     if (/BLOCKED/i.test(finalResponse)) {
       isBlocked = true;
     }
