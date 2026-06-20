@@ -10,31 +10,54 @@ import { HumanMessage } from "@langchain/core/messages";
 import { AccountBalanceQuery } from "@hiero-ledger/sdk";
 import { env } from "@/lib/config";
 
-let agent: any = null;
+// ─────────────────────────────────────────────────────────────
+// MODEL ROUTING: DeepSeek for everything, Claude for transfers
+// ─────────────────────────────────────────────────────────────
+
+let deepseekAgent: any = null;
+let claudeAgent: any = null;
 let toolkit: HederaLangchainToolkit | null = null;
 
-async function getAgent() {
-  if (agent) return agent;
+const SYSTEM_PROMPT = [
+  "You are Hedera Spend Guardian - an AI agent on Hedera Testnet guarded by HAK v4 policies.",
+  "",
+  "AVAILABLE TOOLS (ALL policy-gated):",
+  "- get_hbar_balance - check balances",
+  "- transfer_hbar - send HBAR (BLOCKED if policies fail)",
+  "- get_account_info - query accounts",
+  "- submit_topic_message - HCS audit logging",
+  "",
+  "CRITICAL RULES (violate = DISQUALIFICATION):",
+  "1. If a wrapped tool returns BLOCKED, copy the EXACT block reason from the tool output word-for-word.",
+  "2. NEVER say you will process/attempt/check before a transfer - always execute first, then report.",
+  "3. NEVER output XML or JSON function calls as text - execute tools directly via function calling.",
+  "4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs.",
+  "5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/TXID",
+  "6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.",
+  "7. Keep responses short - the user is on mobile.",
+].join("\n");
 
-  const client = getHederaClient();
-
-  toolkit = new HederaLangchainToolkit({
-    client,
-    configuration: {
-      tools: [
-        "get_hbar_balance",
-        "get_account_info",
-        "transfer_hbar",
-        "get_token_balance",
-        "get_topic_info",
-        "submit_topic_message",
-      ],
-    },
-  });
+function buildAgent(model: string, temp = 0) {
+  if (!toolkit) {
+    const client = getHederaClient();
+    toolkit = new HederaLangchainToolkit({
+      client,
+      configuration: {
+        tools: [
+          "get_hbar_balance",
+          "get_account_info",
+          "transfer_hbar",
+          "get_token_balance",
+          "get_topic_info",
+          "submit_topic_message",
+        ],
+      },
+    });
+  }
 
   const llm = new ChatOpenAI({
-    model: "deepseek-ai/DeepSeek-V4-Pro",
-    temperature: 0,
+    model,
+    temperature: temp,
     configuration: {
       baseURL: "https://api.pioneer.ai/v1",
       apiKey: env.DEEPSEEK_API_KEY,
@@ -44,7 +67,6 @@ async function getAgent() {
   const rawTools = toolkit.getTools() as any;
   const guardedTools = wrapFinancialTools(rawTools);
 
-  // Bind tools properly so DeepSeek uses native function calling, not text output
   const llmWithTools = llm.bindTools(
     guardedTools.map((t: any) => ({
       type: "function" as const,
@@ -56,34 +78,30 @@ async function getAgent() {
     })),
   ) as any;
 
-  const SYSTEM_PROMPT = [
-    "You are Hedera Spend Guardian - an AI agent on Hedera Testnet guarded by HAK v4 policies.",
-    "",
-    "AVAILABLE TOOLS (ALL policy-gated):",
-    "- get_hbar_balance - check balances",
-    "- transfer_hbar - send HBAR (BLOCKED if policies fail)",
-    "- get_account_info - query accounts",
-    "- submit_topic_message - HCS audit logging",
-    "",
-    "CRITICAL RULES (violate = DISQUALIFICATION):",
-    "1. If a wrapped tool returns BLOCKED, copy the EXACT block reason from the tool output word-for-word. NEVER rewrite, paraphrase, or invent a reason.",
-    "2. NEVER say I will process/attempt/check before a transfer - always execute first, then report result.",
-    "3. NEVER output XML or JSON function calls as text - execute the tool directly via function calling.",
-    "4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs.",
-    "5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/TXID",
-    "6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.",
-    "7. Keep responses short - the user is on mobile.",
-    "8. Report policy blocks in plain text, copying the exact BLOCKED message from the tool.",
-  ].join("\n");
-
-  agent = createReactAgent({
+  return createReactAgent({
     llm: llmWithTools,
     tools: guardedTools,
     messageModifier: SYSTEM_PROMPT,
   });
-
-  return agent;
 }
+
+async function getDeepSeekAgent() {
+  if (!deepseekAgent) {
+    deepseekAgent = buildAgent("deepseek-ai/DeepSeek-V4-Pro");
+  }
+  return deepseekAgent;
+}
+
+async function getClaudeAgent() {
+  if (!claudeAgent) {
+    claudeAgent = buildAgent("claude-opus-4-8");
+  }
+  return claudeAgent;
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST handler
+// ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
@@ -94,9 +112,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    const ag = await getAgent();
-    const topicId = await createAuditTopic().catch(() => "pending");
-
     // Parse user intent FIRST (used by all interceptors)
     const transferMatch = message.match(/(?:transfer|send|pay|move)\s+(\d+(?:\.\d+)?)\s*hbar/i);
     const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
@@ -106,7 +121,7 @@ export async function POST(req: NextRequest) {
     let isBlocked = false;
     let reasons: string[] = [];
 
-    // Interceptor 1: Transfer policy check BEFORE agent
+    // ── Interceptor 1: Transfer policy check BEFORE agent ──
     if (amountHbar > 0) {
       const xferResults = policyEngine.evaluate({
         toolName: "transfer_hbar",
@@ -121,7 +136,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Interceptor 2: Balance query
+    // ── Interceptor 2: Balance query (DeepSeek - cheap) ──
     if (!directResponse && /\b(balance|how much hbar|check hbar)\b/i.test(message)) {
       try {
         const hc = getHederaClient();
@@ -135,7 +150,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Interceptor 3: Account info query
+    // ── Interceptor 3: Account info query (DeepSeek - cheap) ──
     if (!directResponse && /\b(account info|account details|who am i)\b/i.test(message)) {
       try {
         const hc = getHederaClient();
@@ -149,76 +164,106 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Run agent OR use direct response
+    // ── MODEL ROUTING: run agent ──
     let agentResponse = "";
     let txId: string | null = null;
 
     if (!directResponse) {
+      // TRANSFER: use Claude (reliable function calling, ~$0.015/request)
+      // NON-TRANSFER: use DeepSeek (cheap, ~$0.001/request)
+      const isTransfer = amountHbar > 0;
+      const ag = isTransfer ? await getClaudeAgent() : await getDeepSeekAgent();
+
+      const topicId = await createAuditTopic().catch(() => "pending");
+
       const result = await ag.invoke({
         messages: [new HumanMessage(message)],
       });
+
+      // Parse tool calls from LangChain AIMessage format
       const lastMessage = result.messages?.[result.messages.length - 1];
       agentResponse = lastMessage?.content || "No response from agent.";
 
-      // DeepSeek fallback: parse tool call from JSON/XML text output
-      let parsedAmount: number | null = null;
-      let parsedRecipient: string | null = null;
+      // Extract transaction ID from tool call results
+      if (isTransfer && result.messages) {
+        for (const msg of result.messages) {
+          if (msg?.name === "transfer_hbar" && msg?.content) {
+            try {
+              const tc = JSON.parse(msg.content);
+              if (tc?.transactionId) {
+                txId = tc.transactionId;
+                agentResponse =
+                  "Transfer successful!\n" +
+                  "To: " + (tc.recipient || "recipient") + "\n" +
+                  "Amount: " + amountHbar + " HBAR\n" +
+                  "HashScan: https://hashscan.io/testnet/transaction/" + txId;
+              }
+            } catch { /* parse failure */ }
+          }
+        }
+      }
 
-      // Try JSON fenced block
-      const jsonStart = agentResponse.indexOf("```json");
-      if (jsonStart !== -1) {
-        const jsonEnd = agentResponse.indexOf("```", jsonStart + 7);
-        if (jsonEnd !== -1) {
+      // DeepSeek fallback: parse tool call from text output (XML/JSON)
+      // Only needed for DeepSeek - Claude uses native function calling
+      if (!isTransfer && !txId && amountHbar > 0) {
+        let parsedAmount: number | null = null;
+        let parsedRecipient: string | null = null;
+
+        // Try JSON fenced block
+        const jsonStart = agentResponse.indexOf("```json");
+        if (jsonStart !== -1) {
+          const jsonEnd = agentResponse.indexOf("```", jsonStart + 7);
+          if (jsonEnd !== -1) {
+            try {
+              const jsonStr = agentResponse.substring(jsonStart + 7, jsonEnd).trim();
+              const p = JSON.parse(jsonStr);
+              if (p?.tool === "transfer_hbar" || p?.name === "transfer_hbar") {
+                parsedAmount = Number(p?.parameters?.amount);
+                parsedRecipient = String(p?.parameters?.recipient || "");
+              }
+            } catch { /* not valid JSON */ }
+          }
+        }
+
+        // Try XML invoke
+        if (!parsedAmount) {
+          const xmlMatch = agentResponse.match(/<invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/invoke>/);
+          if (xmlMatch && xmlMatch[1] === "transfer_hbar") {
+            const inner = xmlMatch[2];
+            const amtMatch = inner.match(/<parameter\s+name="amount"[^>]*>([^<]+)<\/parameter>/);
+            const recMatch = inner.match(/<parameter\s+name="recipient"[^>]*>([^<]+)<\/parameter>/);
+            if (amtMatch) parsedAmount = Number(amtMatch[1]);
+            if (recMatch) parsedRecipient = String(recMatch[1]);
+          }
+        }
+
+        // Try bare XML
+        if (!parsedAmount) {
+          const bareMatch = agentResponse.match(/<transfer_hbar\s+amount="([^"]+)"\s+recipient="([^"]+)"\s*\/?>/);
+          if (bareMatch) {
+            parsedAmount = Number(bareMatch[1]);
+            parsedRecipient = String(bareMatch[2]);
+          }
+        }
+
+        if (parsedAmount && parsedAmount > 0 && parsedRecipient && !isBlocked) {
           try {
-            const jsonStr = agentResponse.substring(jsonStart + 7, jsonEnd).trim();
-            const p = JSON.parse(jsonStr);
-            if (p?.tool === "transfer_hbar" || p?.name === "transfer_hbar") {
-              parsedAmount = Number(p?.parameters?.amount);
-              parsedRecipient = String(p?.parameters?.recipient || "");
-            }
-          } catch { /* not valid JSON */ }
-        }
-      }
-
-      // Try XML invoke
-      if (!parsedAmount) {
-        const xmlMatch = agentResponse.match(/<invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/invoke>/);
-        if (xmlMatch && xmlMatch[1] === "transfer_hbar") {
-          const inner = xmlMatch[2];
-          const amtMatch = inner.match(/<parameter\s+name="amount"[^>]*>([^<]+)<\/parameter>/);
-          const recMatch = inner.match(/<parameter\s+name="recipient"[^>]*>([^<]+)<\/parameter>/);
-          if (amtMatch) parsedAmount = Number(amtMatch[1]);
-          if (recMatch) parsedRecipient = String(recMatch[1]);
-        }
-      }
-
-      // Try bare XML
-      if (!parsedAmount) {
-        const bareMatch = agentResponse.match(/<transfer_hbar\s+amount="([^"]+)"\s+recipient="([^"]+)"\s*\/?>/);
-        if (bareMatch) {
-          parsedAmount = Number(bareMatch[1]);
-          parsedRecipient = String(bareMatch[2]);
-        }
-      }
-
-      if (parsedAmount && parsedAmount > 0 && parsedRecipient && !isBlocked) {
-        try {
-          const hc = getHederaClient();
-          const { TransferTransaction, Hbar } = await import("@hiero-ledger/sdk");
-          const senderId = process.env.HEDERA_OPERATOR_ID!;
-          const tx = await new TransferTransaction()
-            .addHbarTransfer(senderId, new Hbar(-parsedAmount))
-            .addHbarTransfer(parsedRecipient, new Hbar(parsedAmount))
-            .execute(hc);
-          const receipt = await tx.getReceipt(hc);
-          txId = tx.transactionId.toString();
-          agentResponse =
-            "Transfer successful!\n" +
-            "To: " + parsedRecipient + "\n" +
-            "Amount: " + parsedAmount + " HBAR\n" +
-            "HashScan: https://hashscan.io/testnet/transaction/" + txId;
-        } catch (txErr: any) {
-          agentResponse = "Transfer parsed but execution failed: " + (txErr?.message || String(txErr));
+            const hc = getHederaClient();
+            const { TransferTransaction, Hbar } = await import("@hiero-ledger/sdk");
+            const senderId = process.env.HEDERA_OPERATOR_ID!;
+            const tx = await new TransferTransaction()
+              .addHbarTransfer(senderId, new Hbar(-parsedAmount))
+              .addHbarTransfer(parsedRecipient, new Hbar(parsedAmount))
+              .execute(hc);
+            txId = tx.transactionId.toString();
+            agentResponse =
+              "Transfer successful!\n" +
+              "To: " + parsedRecipient + "\n" +
+              "Amount: " + parsedAmount + " HBAR\n" +
+              "HashScan: https://hashscan.io/testnet/transaction/" + txId;
+          } catch (txErr: any) {
+            agentResponse = "Transfer parsed but execution failed: " + (txErr?.message || String(txErr));
+          }
         }
       }
     }
@@ -249,6 +294,7 @@ export async function POST(req: NextRequest) {
       details: JSON.stringify({
         userMessage: message.slice(0, 200),
         agentResponse: finalResponse.slice(0, 200),
+        model: amountHbar > 0 ? "claude" : "deepseek",
       }),
     }).catch(() => {});
 
@@ -257,7 +303,7 @@ export async function POST(req: NextRequest) {
       blocked: isBlocked,
       reasons,
       policyResults,
-      topicId,
+      topicId: "pending",
       status: policyEngine.getStatus(),
     });
   } catch (error: any) {
