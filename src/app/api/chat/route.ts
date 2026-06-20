@@ -92,7 +92,8 @@ export async function POST(req: NextRequest) {
     const topicId = await createAuditTopic().catch(() => "pending");
 
     // ── Parse user intent FIRST (used by all interceptors) ──
-    const transferMatch = message.match(/transfer\s+(\d+(?:\.\d+)?)\s*hbar/i);
+    // Match: transfer, send, pay, move — with optional "to"
+    const transferMatch = message.match(/(?:transfer|send|pay|move)\s+(\d+(?:\.\d+)?)\s*hbar/i);
     const amountHbar = transferMatch ? parseFloat(transferMatch[1]) : 0;
     const toolName = amountHbar > 0 ? "transfer_hbar" : "chat";
 
