@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
       if (blockers.length > 0) {
         // BLOCKED by policy
         reasons = blockers.map((r: any) => r.reason);
-        directResponse = "BLOCKED: " + blockers.map((r: any) => r.name + " - " + r.reason).join("; ");
+        directResponse = "BLOCKED: " + blockers.map((r: any) => r.policy + " - " + r.reason).join("; ");
         isBlocked = true;
       } else {
         // ALL POLICIES PASS: Execute transfer directly via Hedera SDK
