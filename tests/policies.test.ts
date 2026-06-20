@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { SpendLimitPolicy } from "../src/lib/policies/spend-limit";
 import { ServiceAllowPolicy } from "../src/lib/policies/service-allow";
 import { TimeWindowPolicy } from "../src/lib/policies/time-window";
+import { MaxSpendPolicy } from "../src/lib/policies/max-spend";
+import { AllowlistPolicy } from "../src/lib/policies/allowlist";
 import { PolicyEngine } from "../src/lib/policy-engine";
 import type { PolicyContext } from "../src/lib/policies/types";
 
@@ -140,6 +142,111 @@ describe("TimeWindowPolicy", () => {
       hour: 18,
     };
     expect(policy.evaluate(ctx).allowed).toBe(false);
+  });
+});
+
+// ── MaxSpendPolicy ────────────────────────────────────────────────────
+
+describe("MaxSpendPolicy", () => {
+  const policy = new MaxSpendPolicy({ dailyLimitUsd: 500, hbarToUsd: 0.07 });
+
+  it("allows small transaction within USD budget", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 1,
+      hour: 14,
+    };
+    expect(policy.evaluate(ctx).allowed).toBe(true);
+  });
+
+  it("gets status with USD amounts", () => {
+    const status = policy.getStatus();
+    expect(status.dailyLimitUsd).toBe(500);
+    expect(status.spentTodayUsd).toBe(0);
+    expect(status.remainingUsd).toBe(500);
+  });
+
+  it("allows transfer under USD budget (10 HBAR ≈ $0.70)", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 10,
+      hour: 14,
+    };
+    expect(policy.evaluate(ctx).allowed).toBe(true);
+  });
+
+  it("blocks transfer that would exceed USD budget", () => {
+    // Pre-seed: 7000 HBAR × $0.07 = $490 already spent
+    // Then 1000 HBAR × $0.07 = $70 → $560 > $500 limit
+    policy.recordSpend(7000);
+    const ctx: PolicyContext = {
+      dailySpentHbar: 7000,
+      currentTxHbar: 1000,
+      hour: 14,
+    };
+    const result = policy.evaluate(ctx);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("USD spend limit exceeded");
+  });
+});
+
+// ── AllowlistPolicy ────────────────────────────────────────────────────
+
+describe("AllowlistPolicy", () => {
+  const policy = new AllowlistPolicy({
+    apiProviders: ["openai", "tavily"],
+    accountIds: ["0.0.12345", "0.0.67890"]
+  });
+
+  it("allows transfer to whitelisted account", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 1,
+      recipientId: "0.0.12345",
+      hour: 14,
+    };
+    expect(policy.evaluate(ctx).allowed).toBe(true);
+  });
+
+  it("blocks transfer to non-whitelisted account", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 1,
+      recipientId: "0.0.99999",
+      hour: 14,
+    };
+    const result = policy.evaluate(ctx);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("not in the account allowlist");
+  });
+
+  it("blocks non-whitelisted API provider", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 0,
+      serviceName: "aws",
+      hour: 14,
+    };
+    const result = policy.evaluate(ctx);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("not in the API provider allowlist");
+  });
+
+  it("allows whitelisted API provider", () => {
+    const ctx: PolicyContext = {
+      dailySpentHbar: 0,
+      currentTxHbar: 0,
+      serviceName: "openai",
+      hour: 14,
+    };
+    expect(policy.evaluate(ctx).allowed).toBe(true);
+  });
+
+  it("getStatus returns providers and accounts", () => {
+    const status = policy.getStatus();
+    expect(status.apiProviders).toContain("openai");
+    expect(status.apiProviders).toContain("tavily");
+    expect(status.accountIds).toContain("0.0.12345");
   });
 });
 
