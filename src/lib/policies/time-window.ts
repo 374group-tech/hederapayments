@@ -7,7 +7,7 @@ export class TimeWindowPolicy {
 
   constructor(startHour?: number, endHour?: number) {
     this.startHour = startHour ?? Number(process.env.BUSINESS_START_HOUR || 9);
-    this.endHour = endHour ?? Number(process.env.BUSINESS_END_HOUR || 18);
+    this.endHour = endHour ?? Number(process.env.BUSINESS_END_HOUR || 23);
   }
 
   evaluate(ctx: PolicyContext): PolicyResult {

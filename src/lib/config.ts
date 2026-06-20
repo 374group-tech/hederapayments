@@ -8,7 +8,7 @@ export const envSchema = z.object({
   DAILY_SPEND_LIMIT_HBAR: z.coerce.number().default(5),
   MAX_PER_TX_HBAR: z.coerce.number().default(2),
   BUSINESS_START_HOUR: z.coerce.number().default(9),
-  BUSINESS_END_HOUR: z.coerce.number().default(18),
+  BUSINESS_END_HOUR: z.coerce.number().default(23),
   ALLOWED_SERVICES: z.string().default("tavily,openai"),
 });
 

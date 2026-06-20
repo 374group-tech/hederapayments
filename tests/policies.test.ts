@@ -293,7 +293,7 @@ describe("PolicyEngine", () => {
       expect.arrayContaining(["hedera", "openai", "tavily"]),
     );
     expect(status.timeWindow.startHour).toBe(9);
-    expect(status.timeWindow.endHour).toBe(18);
+    expect(status.timeWindow.endHour).toBe(23);
   });
 
   it("recordSpend increments daily total", () => {
