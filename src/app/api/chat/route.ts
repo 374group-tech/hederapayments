@@ -144,15 +144,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Run agent OR use direct response ──
+    // - Run agent OR use direct response -
     let agentResponse = "";
-    // Skip agent when blocked by policy — no point calling LLM
+    let txId: string | null = null;
+    // Skip agent when blocked by policy - no point calling LLM
     if (!directResponse) {
       const result = await ag.invoke({
         messages: [new HumanMessage(message)],
       });
       const lastMessage = result.messages?.[result.messages.length - 1];
       agentResponse = lastMessage?.content || "No response from agent.";
+
+      // DeepSeek JSON-text fallback: parse tool call from markdown code block
+      const jsonBlockMatch = agentResponse.match(/```json\s*\n?([\s\S]*?)\n?```/);
+      const parsedTool = jsonBlockMatch ? (() => { try { return JSON.parse(jsonBlockMatch[1]); } catch { return null; } })() : null;
+      if (parsedTool?.tool === "transfer_hbar" && amountHbar > 0 && !isBlocked) {
+        try {
+          const recipient = parsedTool.parameters?.recipient;
+          const amount = parsedTool.parameters?.amount || amountHbar;
+          const hc = getHederaClient();
+          const { TransferTransaction, Hbar } = await import("@hiero-ledger/sdk");
+          const senderId = process.env.HEDERA_OPERATOR_ID!;
+          const tx = await new TransferTransaction()
+            .addHbarTransfer(senderId, new Hbar(-amount))
+            .addHbarTransfer(recipient, new Hbar(amount))
+            .execute(hc);
+          const receipt = await tx.getReceipt(hc);
+          txId = tx.transactionId.toString();
+          agentResponse =
+            "Transfer successful!\n" +
+            "To: " + recipient + "\n" +
+            "Amount: " + amount + " HBAR\n" +
+            "HashScan: https://hashscan.io/testnet/transaction/" + txId;
+        } catch (txErr: any) {
+          agentResponse = "Transfer parsed but execution failed: " + (txErr?.message || String(txErr));
+        }
+      }
     }
 
     const finalResponse = directResponse || agentResponse;
