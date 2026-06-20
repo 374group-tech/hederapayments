@@ -2,6 +2,32 @@
 
 import { useState } from "react";
 
+// Convert URLs in text to clickable JSX spans
+function linkifyText(text: string) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  const matches = text.match(urlRegex) || [];
+  
+  const result: (string | React.ReactNode)[] = [];
+  parts.forEach((part, i) => {
+    result.push(part);
+    if (matches[i]) {
+      result.push(
+        <a
+          key={i}
+          href={matches[i]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-400 underline hover:text-blue-300"
+        >
+          {matches[i]}
+        </a>
+      );
+    }
+  });
+  return result;
+}
+
 export default function Home() {
   const [message, setMessage] = useState("");
   const [response, setResponse] = useState<any>(null);
@@ -25,7 +51,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-2">🛡️ Hedera Spend Guardian</h1>
+        <h1 className="text-3xl font-bold mb-2">Hedera Spend Guardian</h1>
         <p className="text-gray-400 mb-8">
           Policy-enforced AI agent — 5 custom policies guard every transaction
         </p>
@@ -33,12 +59,12 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Chat Panel */}
           <div className="lg:col-span-2 bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <h2 className="text-xl font-semibold mb-4">💬 Agent Chat</h2>
+            <h2 className="text-xl font-semibold mb-4">Agent Chat</h2>
             <div className="mb-4">
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type your request... e.g. 'Find latest Hedera news'"
+                placeholder="Type your request... e.g. 'send 0.5 hbar to 0.0.123', 'check balance', 'what is Hedera'"
                 className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 min-h-[100px]"
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               />
@@ -52,13 +78,23 @@ export default function Home() {
             </button>
 
             {response && (
-              <div className={`mt-6 p-4 rounded-lg ${response.blocked ? "bg-red-900/50 border border-red-700" : "bg-green-900/30 border border-green-700"}`}>
-                <div className="font-medium mb-2">{response.blocked ? "❌ Blocked" : "✅ Allowed"}</div>
-                <p className="text-sm text-gray-300">{response.message}</p>
+              <div className={`mt-6 p-4 rounded-lg whitespace-pre-wrap break-words ${response.blocked ? "bg-red-900/50 border border-red-700" : "bg-green-900/30 border border-green-700"}`}>
+                <div className="font-medium mb-2">{response.blocked ? "Blocked" : "Allowed"}</div>
+                <p className="text-sm text-gray-300">{linkifyText(response.message)}</p>
+                {response.txId && (
+                  <a
+                    href={"https://hashscan.io/testnet/transaction/" + response.txId}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block mt-2 text-sm text-blue-400 underline hover:text-blue-300"
+                  >
+                    View on HashScan
+                  </a>
+                )}
                 {response.reasons && (
                   <ul className="mt-2 text-sm text-red-400">
                     {response.reasons.map((r: string, i: number) => (
-                      <li key={i}>• {r}</li>
+                      <li key={i}>- {r}</li>
                     ))}
                   </ul>
                 )}
@@ -68,7 +104,7 @@ export default function Home() {
 
           {/* Policy Dashboard */}
           <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <h2 className="text-xl font-semibold mb-4">📊 Policy Status</h2>
+            <h2 className="text-xl font-semibold mb-4">Policy Status</h2>
             {response?.status ? (
               <div className="space-y-4 text-sm">
                 <div>
@@ -116,7 +152,7 @@ export default function Home() {
                 )}
                 {response.topicId && (
                   <div>
-                    <div className="text-gray-400 mb-1">📜 HCS Audit</div>
+                    <div className="text-gray-400 mb-1">HCS Audit</div>
                     <div className="text-yellow-400 text-xs font-mono">{response.topicId}</div>
                   </div>
                 )}
@@ -131,7 +167,7 @@ export default function Home() {
               <div className="mt-6 space-y-2">
                 {response.policyResults.map((p: any, i: number) => (
                   <div key={i} className={`flex items-center gap-2 text-xs ${p.allowed ? "text-green-400" : "text-red-400"}`}>
-                    <span>{p.allowed ? "✓" : "✗"}</span>
+                    <span>{p.allowed ? "\u2713" : "\u2717"}</span>
                     <span>{p.policy}</span>
                   </div>
                 ))}
