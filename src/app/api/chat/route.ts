@@ -68,12 +68,14 @@ AVAILABLE TOOLS (ALL policy-gated):
 - submit_topic_message — HCS audit logging
 
 CRITICAL RULES (violate = DISQUALIFICATION):
-1. If a wrapped tool returns BLOCKED, respond ONLY with the block reason. NEVER say "approved" or "success" or generate fake transaction IDs.
-2. Example correct response: "❌ BLOCKED by TimeWindowPolicy: Transactions only allowed 9:00–18:00 UTC (current: 19:00)."
-3. Example correct response: "❌ BLOCKED by SpendLimitPolicy: 10 HBAR exceeds daily limit of 5 HBAR."
-4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs like 0.0.123456.
-5. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.
-6. Keep responses short — the user is on mobile.`,
+1. If a wrapped tool returns BLOCKED, copy the EXACT block reason from the tool output word-for-word. NEVER rewrite, paraphrase, or invent a reason.
+2. NEVER say "I'll process/attempt/check" before a transfer — always execute first, then report result.
+3. NEVER output XML (<function_calls>, <invoke>) or JSON — execute the tool directly via function calling.
+4. If a tool returns SUCCESS, report the REAL transaction ID from the tool output. NEVER invent IDs.
+5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/<txId>
+6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.
+7. Keep responses short — the user is on mobile.
+8. Report policy blocks in plain text with emoji: "❌ BLOCKED by SpendLimitPolicy: 0.35 HBAR exceeds daily limit of 5 HBAR (5 already spent)."
   });
 
   return agent;
@@ -155,26 +157,59 @@ export async function POST(req: NextRequest) {
       const lastMessage = result.messages?.[result.messages.length - 1];
       agentResponse = lastMessage?.content || "No response from agent.";
 
-      // DeepSeek JSON-text fallback: parse tool call from markdown code block
-      const jsonBlockMatch = agentResponse.match(/```json\s*\n?([\s\S]*?)\n?```/);
-      const parsedTool = jsonBlockMatch ? (() => { try { return JSON.parse(jsonBlockMatch[1]); } catch { return null; } })() : null;
-      if (parsedTool?.tool === "transfer_hbar" && amountHbar > 0 && !isBlocked) {
+      // DeepSeek fallback: parse tool call from JSON/XML text output
+      // JSON format: ```json { "tool": "transfer_hbar", "parameters": {...} }
+      // XML format:  <function_calls><invoke name="transfer_hbar"><parameter name="amount">0.35</parameter>...
+      let parsedAmount = null as number | null;
+      let parsedRecipient = null as string | null;
+
+      const jsonMatch = agentResponse.match(/```json\s*\n?([\s\S]*?)\n?```/);
+      if (jsonMatch) {
         try {
-          const recipient = parsedTool.parameters?.recipient;
-          const amount = parsedTool.parameters?.amount || amountHbar;
+          const p = JSON.parse(jsonMatch[1]);
+          if (p?.tool === "transfer_hbar" || p?.name === "transfer_hbar") {
+            parsedAmount = Number(p?.parameters?.amount);
+            parsedRecipient = String(p?.parameters?.recipient || "");
+          }
+        } catch { /* not valid JSON */ }
+      }
+
+      // XML fallback — DeepSeek sometimes outputs <function_calls> instead of JSON
+      if (!parsedAmount) {
+        const xmlMatch = agentResponse.match(/<invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/invoke>/);
+        if (xmlMatch && xmlMatch[1] === "transfer_hbar") {
+          const inner = xmlMatch[2];
+          const amtMatch = inner.match(/<parameter\s+name="amount"[^>]*>([^<]+)<\/parameter>/);
+          const recMatch = inner.match(/<parameter\s+name="recipient"[^>]*>([^<]+)<\/parameter>/);
+          if (amtMatch) parsedAmount = Number(amtMatch[1]);
+          if (recMatch) parsedRecipient = String(recMatch[1]);
+        }
+      }
+
+      // Also try bare XML inline: <transfer_hbar amount="0.35" recipient="0.0.54321" />
+      if (!parsedAmount) {
+        const bareMatch = agentResponse.match(/<transfer_hbar\s+amount="([^"]+)"\s+recipient="([^"]+)"\s*\/?>/);
+        if (bareMatch) {
+          parsedAmount = Number(bareMatch[1]);
+          parsedRecipient = String(bareMatch[2]);
+        }
+      }
+
+      if (parsedAmount && parsedAmount > 0 && parsedRecipient && !isBlocked) {
+        try {
           const hc = getHederaClient();
           const { TransferTransaction, Hbar } = await import("@hiero-ledger/sdk");
           const senderId = process.env.HEDERA_OPERATOR_ID!;
           const tx = await new TransferTransaction()
-            .addHbarTransfer(senderId, new Hbar(-amount))
-            .addHbarTransfer(recipient, new Hbar(amount))
+            .addHbarTransfer(senderId, new Hbar(-parsedAmount))
+            .addHbarTransfer(parsedRecipient, new Hbar(parsedAmount))
             .execute(hc);
           const receipt = await tx.getReceipt(hc);
           txId = tx.transactionId.toString();
           agentResponse =
             "Transfer successful!\n" +
-            "To: " + recipient + "\n" +
-            "Amount: " + amount + " HBAR\n" +
+            "To: " + parsedRecipient + "\n" +
+            "Amount: " + parsedAmount + " HBAR\n" +
             "HashScan: https://hashscan.io/testnet/transaction/" + txId;
         } catch (txErr: any) {
           agentResponse = "Transfer parsed but execution failed: " + (txErr?.message || String(txErr));
