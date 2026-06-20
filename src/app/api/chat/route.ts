@@ -75,7 +75,7 @@ CRITICAL RULES (violate = DISQUALIFICATION):
 5. For transfers, ALWAYS include the HashScan link: https://hashscan.io/testnet/transaction/<txId>
 6. Never transfer HBAR unless the user explicitly asks and specifies both amount AND recipient.
 7. Keep responses short — the user is on mobile.
-8. Report policy blocks in plain text with emoji: "❌ BLOCKED by SpendLimitPolicy: 0.35 HBAR exceeds daily limit of 5 HBAR (5 already spent)."
+8. Report policy blocks in plain text: "BLOCKED by SpendLimitPolicy: 0.35 HBAR exceeds daily limit of 5 HBAR (5 already spent)."
   });
 
   return agent;
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
       const blockers = xferResults.filter((r: any) => !r.allowed);
       if (blockers.length > 0) {
         reasons = blockers.map((r: any) => r.reason);
-        directResponse = `❌ BLOCKED by policies:\n• ${reasons.join('\n• ')}`;
+        directResponse = "BLOCKED by policies:\n• " + reasons.join("\n• ");
         isBlocked = true;
       }
     }
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
         const bal = await new AccountBalanceQuery()
           .setAccountId(operatorId)
           .execute(hc);
-        directResponse = `💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR on Hedera Testnet (account ${operatorId})`;
+        directResponse = "Balance: " + bal.hbars.toTinybars().divide(100_000_000).toString() + " HBAR on Hedera Testnet (account " + operatorId + ")";
       } catch {
         directResponse = null;
       }
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
         const bal = await new AccountBalanceQuery()
           .setAccountId(operatorId)
           .execute(hc);
-        directResponse = `🏦 **Account:** ${operatorId}\n💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR\n🌐 **Network:** Hedera Testnet\n🛡️ **Guard:** 5 HAK v4 policies active`;
+        directResponse = "Account: " + operatorId + "\nBalance: " + bal.hbars.toTinybars().divide(100_000_000).toString() + " HBAR\nNetwork: Hedera Testnet\nGuard: 5 HAK v4 policies active";
       } catch {
         directResponse = null;
       }
@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
     const finalResponse = directResponse || agentResponse;
 
     // Detect blocked from wrapped tool output
-    if (/BLOCKED|🚫/i.test(finalResponse)) {
+    if (/BLOCKED/i.test(finalResponse)) {
       isBlocked = true;
     }
 
