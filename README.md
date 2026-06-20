@@ -11,7 +11,7 @@
     11|
     12|## 📖 Overview
     13|
-    14|Hedera Spend Guardian is an autonomous AI agent that leverages the **Hedera Agent Kit v4** with **LangChain/LangGraph** and **DeepSeek** to interact with Hedera Testnet. Every tool call—whether an on-chain transfer or an off-chain API request—is intercepted by a **3-layer policy engine** before execution.
+    14|Hedera Spend Guardian is an autonomous AI agent that leverages the **Hedera Agent Kit v4** with **LangChain/LangGraph** and **DeepSeek V4 Pro** to interact with Hedera Testnet. Every tool call—whether an on-chain transfer or an off-chain API request—is intercepted by a **5-layer policy engine** before execution.
     15|
     16|### Core Architecture
     17|
@@ -80,7 +80,7 @@
     80|DAILY_SPEND_LIMIT_HBAR=5
     81|MAX_PER_TX_HBAR=2
     82|BUSINESS_START_HOUR=9
-    83|BUSINESS_END_HOUR=18
+    83|BUSINESS_END_HOUR=23
     84|ALLOWED_SERVICES=tavily,openai,hedera
     85|TAVILY_API_KEY=tvly-...
     86|```
@@ -96,7 +96,7 @@
     96|| **Hedera SDK** | @hiero-ledger/sdk v2.85 | ED25519 signing + HCS |
     97|| **Agent Kit** | @hashgraph/hedera-agent-kit ^4.0.0 | Hedera tools for agent |
     98|| **LangChain** | @hashgraph/hedera-agent-kit-langchain ^1.0.0 + LangGraph | Agent orchestration |
-    99|| **LLM** | @langchain/deepseek (deepseek-chat) | Cost-optimized reasoning ($0.14/M tok) |
+    99|| **LLM** | DeepSeek V4 Pro (via Pioneer.ai) | Cost-optimized reasoning + direct SDK for transfers |
    100|| **UI** | React 19 + Tailwind CSS 4 | Chat panel + policy dashboard |
    101|| **Hosting** | Vercel | Production deployment |
    102|
@@ -116,7 +116,16 @@
    116|
    117|## 🔐 Safety & Autonomy
    118|
-   119|**The agent signs transactions autonomously** using the ED25519 private key stored server-side in `.env`. This demonstrates true agentic behavior — the policy layer IS the safety mechanism, replacing traditional human-in-the-loop approval.
+The agent signs transactions autonomously using ED25519 private key stored server-side. However, LLM-based function calling is unreliable for financial transactions — DeepSeek often outputs tool calls as text rather than executing them natively. Our architecture solves this with a **hybrid model**:
+
+| Operation | Execution Model | Why |
+|-----------|----------------|-----|
+| **Transfers** (`transfer_hbar`) | **Direct Hedera SDK** | 100% reliable, zero hallucination, HashScan-verified |
+| **Balance queries** | **Direct Hedera SDK** | Instant, zero LLM cost, no tool call overhead |
+| **Account info** | **Direct Hedera SDK** | Deterministic, always accurate |
+| **Free-form chat** | **DeepSeek V4 Pro Agent** | Flexible reasoning, full LangChain/LangGraph pipeline |
+
+The policy engine evaluates ALL transfers BEFORE direct SDK execution — the pre-execution gate intercepts the parsed intent (amount + recipient), runs all 5 policies, and only allows the SDK transaction if every policy passes. This is a **stronger safety guarantee** than relying on LLM tool calls that may hallucinate or silently fail.
    120|
    121|- ✅ **No HashPack popups** — agent signs directly via `@hiero-ledger/sdk`
    122|- ✅ **5-layer policy defense** — every transaction passes through SpendLimit → ServiceAllow → TimeWindow → MaxSpend → Allowlist before execution
@@ -131,14 +140,15 @@
    131|// POST /api/chat — { "message": "Transfer 1 HBAR to 0.0.12345" }
    132|
    133|// Agent flow:
-   134|// 1. PolicyEngine.evaluate() checks all 3 policies
-   135|// 2. SpendLimitPolicy: 1 HBAR ≤ 2 HBAR per-tx → ✅
-   136|// 3. ServiceAllowPolicy: "hedera" is allowed → ✅
-   137|// 4. TimeWindowPolicy: 14:00 UTC is within 9-18 → ✅
-   138|// 5. Agent invokes transfer_hbar tool via HAK v4
-   139|// 6. Transaction signed with ED25519 key, submitted to testnet
-   140|// 7. HCS audit log written
-   141|// 8. Response returned with policy status
+// 1. PolicyEngine.evaluate() checks all 5 policies
+// 2. SpendLimitPolicy: 1 HBAR ≤ 2 HBAR per-tx → ✅
+// 3. ServiceAllowPolicy: "hedera" is allowed → ✅
+// 4. TimeWindowPolicy: 14:00 UTC is within 9-23 → ✅
+// 5. MaxSpendPolicy: 1 × $0.07 = $0.07 < $50 → ✅
+// 6. AllowlistPolicy: recipient in allowlist → ✅
+// 7. Transaction signed with ED25519 key, submitted to testnet
+// 8. HCS audit log written
+// 9. Response returned with policy status + HashScan link
    142|
    143|// Response:
    144|{
@@ -154,7 +164,7 @@
    154|  "status": {
    155|    "spendLimit": { "spentToday": 1, "dailyLimit": 5, "perTxLimit": 2 },
    156|    "serviceAllow": { "allowedServices": ["tavily", "openai", "hedera"] },
-   157|    "timeWindow": { "startHour": 9, "endHour": 18 },
+   157|    "timeWindow": { "startHour": 9, "endHour": 23 },
    158|    "maxSpend": { "spentTodayUsd": 0.07, "dailyLimitUsd": 500, "remainingUsd": 499.93 },
    159|    "allowlist": { "apiProviders": ["openai", "tavily"], "accountIds": ["0.0.12345"] }
    160|  },
@@ -176,7 +186,7 @@
    176|│   └── lib/
    177|│       ├── config.ts               # Zod env validation
    178|│       ├── hedera-client.ts        # Client.forTestnet() with ED25519
-   179|│       ├── hcs-audit.ts            # HCS topic + message submission (legacy)
+   179|│       ├── hcs-audit.ts            # HCS topic + message submission
    180|│       ├── constants.ts            # Operator ID export
    181|│       ├── wrapped-tools.ts        # Pre-execution policy gate (wrap HAK tools)
    182|│       ├── policy-engine.ts        # Orchestrates all policies

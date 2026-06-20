@@ -256,6 +256,7 @@ describe("PolicyEngine", () => {
   let engine: PolicyEngine;
 
   beforeEach(() => {
+    process.env.BUSINESS_END_HOUR = "23"; // Ensure test uses the default 23
     engine = new PolicyEngine();
   });
 
