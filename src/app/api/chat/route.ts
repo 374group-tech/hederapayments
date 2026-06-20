@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
         const bal = await new AccountBalanceQuery()
           .setAccountId(operatorId)
           .execute(hc);
-        directResponse = `🏦 **Account:** ${operatorId}\n💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR\n🌐 **Network:** Hedera Testnet\n🛡️ **Guard:** 3 HAK v4 policies active`;
+        directResponse = `🏦 **Account:** ${operatorId}\n💰 **Balance:** ${bal.hbars.toTinybars().divide(100_000_000).toString()} HBAR\n🌐 **Network:** Hedera Testnet\n🛡️ **Guard:** 5 HAK v4 policies active`;
       } catch {
         directResponse = null;
       }
