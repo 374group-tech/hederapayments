@@ -30,7 +30,7 @@ function linkifyText(text: string) {
 
 export default function Home() {
   const [message, setMessage] = useState("");
-  const [response, setResponse] = useState<any>(null);
+  const [response, setResponse] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
 
   const send = async () => {
@@ -165,7 +165,7 @@ export default function Home() {
 
             {response?.policyResults && (
               <div className="mt-6 space-y-2">
-                {response.policyResults.map((p: any, i: number) => (
+                {response.policyResults.map((p: unknown, i: number) => (
                   <div key={i} className={`flex items-center gap-2 text-xs ${p.allowed ? "text-green-400" : "text-red-400"}`}>
                     <span>{p.allowed ? "\u2713" : "\u2717"}</span>
                     <span>{p.policy}</span>

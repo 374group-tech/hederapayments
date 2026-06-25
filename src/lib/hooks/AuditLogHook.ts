@@ -84,14 +84,14 @@ function extractAmount(params: Record<string, unknown>): number | undefined {
   if (typeof raw === "object" && raw !== null) {
     const obj = raw as Record<string, unknown>;
     if (typeof obj.toBigNumber === "function") {
-      const bn = (obj as any).toBigNumber();
+      const bn = (obj as unknown).toBigNumber();
       return bn?.toNumber?.() ?? undefined;
     }
     if (typeof obj.toNumber === "function") {
-      return (obj as any).toNumber();
+      return (obj as unknown).toNumber();
     }
     if (typeof obj.toString === "function") {
-      const n = Number((obj as any).toString());
+      const n = Number((obj as unknown).toString());
       return Number.isNaN(n) ? undefined : n;
     }
   }
@@ -110,8 +110,8 @@ function extractRecipient(params: Record<string, unknown>): string | undefined {
     params.recipient;
 
   if (typeof raw === "string") return raw;
-  if (raw && typeof raw === "object" && typeof (raw as any).toString === "function") {
-    return (raw as any).toString();
+  if (raw && typeof raw === "object" && typeof (raw as unknown).toString === "function") {
+    return (raw as unknown).toString();
   }
 
   return undefined;
@@ -223,13 +223,13 @@ function sanitiseParams(obj: Record<string, unknown>): Record<string, unknown> {
       result[key] = null;
     } else if (value instanceof Uint8Array) {
       result[key] = `0x${Buffer.from(value).toString("hex")}`;
-    } else if (typeof value === "object" && typeof (value as any).toString === "function") {
+    } else if (typeof value === "object" && typeof (value as unknown).toString === "function") {
       // AccountId, TokenId, TopicId, Hbar, PublicKey, etc.
-      result[key] = (value as any).toString();
+      result[key] = (value as unknown).toString();
     } else if (Array.isArray(value)) {
       result[key] = value.map((v) => {
-        if (typeof v === "object" && v !== null && typeof (v as any).toString === "function") {
-          return (v as any).toString();
+        if (typeof v === "object" && v !== null && typeof (v as unknown).toString === "function") {
+          return (v as unknown).toString();
         }
         return v;
       });

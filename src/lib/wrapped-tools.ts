@@ -67,8 +67,8 @@ export function createGuardedTool(
         }
 
         // ── ALLOWED: delegate to real tool ──
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await (original as any).invoke(parsed, config);
+         
+        const result = await (original as unknown).invoke(parsed, config);
 
         if (amountHbar > 0) {
           policyEngine.recordSpend(amountHbar);

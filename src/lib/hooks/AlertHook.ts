@@ -298,7 +298,7 @@ export class AlertHook extends AbstractHook {
         typeof params.toolResult === "object" &&
           params.toolResult !== null &&
           "humanMessage" in params.toolResult
-          ? (params.toolResult as any).humanMessage
+          ? (params.toolResult as unknown).humanMessage
           : (typeof rawResult === "object" && rawResult !== null
               ? (rawResult as Record<string, unknown>)
               : rawResult),
@@ -309,7 +309,7 @@ export class AlertHook extends AbstractHook {
         typeof params.toolResult === "object" &&
         params.toolResult !== null &&
         "humanMessage" in params.toolResult
-          ? (params.toolResult as any).humanMessage
+          ? (params.toolResult as unknown).humanMessage
           : null;
 
       const blockedByHumanMsg =

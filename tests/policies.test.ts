@@ -1,4 +1,4 @@
-/// <reference types="vitest" />
+import "vitest";
 import { describe, it, expect, beforeEach } from "vitest";
 import { SpendLimitPolicy } from "../src/lib/policies/spend-limit";
 import { ServiceAllowPolicy } from "../src/lib/policies/service-allow";

@@ -10,7 +10,7 @@
  */
 import { AbstractPolicy } from "@hashgraph/hedera-agent-kit";
 import type {
-  PreToolExecutionParams,
+  // PreToolExecutionParams — unused, kept for reference,
   PostParamsNormalizationParams,
 } from "@hashgraph/hedera-agent-kit";
 import type { PolicyResult, PolicyContext } from "./types";
@@ -119,7 +119,7 @@ export class MaxSpendPolicy extends AbstractPolicy {
     if (amount != null) {
       // tinybar → HBAR → USD  (1 HBAR = 100_000_000 tinybar)
       const amountNum = typeof amount === "object" && "toNumber" in amount
-        ? (amount as any).toNumber()
+        ? (amount as unknown).toNumber()
         : Number(amount);
       // amount in tinybars; convert to HBAR, then USD
       const hbarValue = amountNum / 100_000_000;
@@ -144,6 +144,7 @@ export class MaxSpendPolicy extends AbstractPolicy {
    */
   protected shouldBlockPostParamsNormalization(
     params: PostParamsNormalizationParams,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _method: string,
   ): boolean {
     this.maybeResetDaily();

@@ -14,7 +14,7 @@ import { env } from "@/lib/config";
 // ARCHITECTURE: Direct SDK for transfers (zero LLM), DeepSeek for chat
 // ============================================================================
 
-let agent: any = null;
+let agent: unknown = null;
 let toolkit: HederaLangchainToolkit | null = null;
 
 const SYSTEM_PROMPT = [
@@ -59,11 +59,11 @@ async function getAgent() {
     },
   });
 
-  const rawTools = toolkit.getTools() as any;
+  const rawTools = toolkit.getTools() as unknown;
   const guardedTools = wrapFinancialTools(rawTools);
 
   const llmWithTools = llm.bindTools(
-    guardedTools.map((t: any) => ({
+    guardedTools.map((t: unknown) => ({
       type: "function" as const,
       function: {
         name: t.name,
@@ -71,7 +71,7 @@ async function getAgent() {
         parameters: t.schema ?? { type: "object", properties: {} },
       },
     })),
-  ) as any;
+  ) as unknown;
 
   agent = createReactAgent({
     llm: llmWithTools,
@@ -119,12 +119,12 @@ export async function POST(req: NextRequest) {
         serviceName: "hedera",
         amountHbar,
       });
-      const blockers = xferResults.filter((r: any) => !r.allowed);
+      const blockers = xferResults.filter((r: unknown) => !r.allowed);
 
       if (blockers.length > 0) {
         // BLOCKED by policy
-        reasons = blockers.map((r: any) => r.reason);
-        directResponse = "BLOCKED: " + blockers.map((r: any) => r.policy + " - " + r.reason).join("; ");
+        reasons = blockers.map((r: unknown) => r.reason);
+        directResponse = "BLOCKED: " + blockers.map((r: unknown) => r.policy + " - " + r.reason).join("; ");
         isBlocked = true;
       } else {
         // ALL POLICIES PASS: Execute transfer directly via Hedera SDK
@@ -139,7 +139,8 @@ export async function POST(req: NextRequest) {
             .setTransactionMemo("Spend Guardian transfer")
             .execute(hc);
 
-          const receipt = await tx.getReceipt(hc);
+          const // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          receipt = await tx.getReceipt(hc);
           txId = tx.transactionId.toString();
 
           directResponse =
@@ -148,7 +149,7 @@ export async function POST(req: NextRequest) {
             "Amount: " + amountHbar + " HBAR\n" +
             "TxID: " + txId + "\n" +
             "HashScan: https://hashscan.io/testnet/transaction/" + txId;
-        } catch (txErr: any) {
+        } catch (txErr: unknown) {
           directResponse = "Transfer failed: " + (txErr?.message || String(txErr));
           isBlocked = true;
           reasons = ["Transaction execution error"];
@@ -214,9 +215,9 @@ export async function POST(req: NextRequest) {
       amountHbar,
     });
 
-    const blockedPolicies = policyResults.filter((r: any) => !r.allowed);
+    const blockedPolicies = policyResults.filter((r: unknown) => !r.allowed);
     if (isBlocked && reasons.length === 0) {
-      reasons = blockedPolicies.map((r: any) => r.reason);
+      reasons = blockedPolicies.map((r: unknown) => r.reason);
     }
 
     await logAuditEvent({
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
       txId,
       status: policyEngine.getStatus(),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[Chat Error]", error);
     return NextResponse.json(
       { error: "Agent error", details: error.message },

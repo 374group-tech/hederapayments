@@ -143,6 +143,7 @@ export class AllowlistPolicy extends AbstractPolicy {
 
   protected shouldBlockPreToolExecution(
     params: PreToolExecutionParams,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _method: string,
   ): boolean {
     if (!this.strictMode) return false;
